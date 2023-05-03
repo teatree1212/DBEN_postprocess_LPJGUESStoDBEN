@@ -1,0 +1,1337 @@
+---
+title: "DBEN_testing_all_vars"
+author: "Annemarie Eckes-Shephard"
+date: "2023-04-24"
+output: html_document
+---
+
+
+## Summary:
+
+
+Some models already have biomass at disturbance year, while others have 0 values. We consider this a feature of the models and accept that some models therefore are on year 'ahead' in the dynamics.
+
+For some models, some variables which have a value of 0 at disturbance year, but then have non-zero values for other variables. Please double-check. 
+i.e. WBgrowth shows 0, but height is already at >0 values? That's of course plausible if height is initialised, but please clarify.
+
+BiomeEP and BiomeES sometimes contain grasses in output that should be explicitly for wood. 
+I can post-process the grasses 'away', but am wondering whether we in this case received output we asked for (i.e. WBgrowth). Please double-check.
+
+Some of the jitteryness comes from the climate forcing. We may create a 30-year running mean to smoothen this in the paper. Other jitteryness I would like to dicuss for individual outputs below (see my comments below).
+
+From Amsterdam:
+-still not really resolved for me:
+How dependent is the disturbance recovery on how “disturbance/bare ground” was set up ? 
+
+NA = no output provided. I mention in the individual model TODOs sent via mail, whether I an output is needed. For ther rest, if you find you can easily add it, please go ahead for the next submission.
+
+[TODOs for ANNEMARIE]
+JULES-RED sizeclass <1 currently set to 0, but is actually "NA". Right now seems like there are 0 trees, instead of no output.
+if(model_name =="JULES-RED"){
+        df[,4] <- NULL
+        
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+
+# sampling of random numbers for forcing data:
+set.seed(143)
+1990+sample.int(30, 30)
+
+#N-values extracted by running all 3 sites on simba, and for year 2015:
+#         Lon      Lat    Year  NH4dep  NO3dep     fix    fert   input     min     imm  netmin   Total
+#BIA    23.75    52.75    2015    4.84    5.23    2.35    0.00   12.42  212.05  121.51   90.54  102.96
+#BCI   -79.75     9.25    2015    1.96    1.61   17.35    0.00   20.93  352.32  267.61   84.71  105.64
+#FI1    23.25    62.25    2015    1.65    3.36    5.80    0.00   10.82  156.46  103.64   52.82   63.64
+    
+#4.84  +  5.23
+#1.96  +  1.61 
+#1.65  +  3.36 
+
+
+```
+
+
+```{r setup_functions}
+
+#knitr::opts_chunk$set(echo = TRUE)
+library(ncdf4)
+library(DGVMTools)
+library(dplyr)
+library(maps)
+library(maptools)
+library(gridExtra)
+#source the format metadata for DBEN project to integrate with DGVMTools:
+#source('Format-DBEN_paper1.R')
+source("/Users/annemarie/Documents/1_TreeMort/2_Analysis/3_analysis_demographic_model_intercomparison/Paper_1/scripts/Format-DBEN_paper1.R")
+
+#conversion helpers:
+year_to_seconds = 60*60*24*365
+seconds_to_year = 1/year_to_seconds
+
+create_figs = TRUE
+Figs_dir <- "/Users/annemarie/Documents/1_TreeMort/2_Analysis/3_analysis_demographic_model_intercomparison/Paper_1/Outputs/Figs/"
+
+## set all file directories here:
+file.dir.fates    <- "/Users/annemarie/Documents/1_TreeMort/2_Analysis/3_analysis_demographic_model_intercomparison/Paper_1/Outputs/FATES/"
+file.dir.lpjguess <- "/Users/annemarie/Documents/1_TreeMort/2_Analysis/3_analysis_demographic_model_intercomparison/Paper_1/Outputs/LPJGUESS/2_processed/"
+
+file.dir.orchidee <- "/Users/annemarie/Documents/1_TreeMort/2_Analysis/3_analysis_demographic_model_intercomparison/Outputs/output_ORCHIDEE/2_processed/"
+file.dir.cablepop <- "/Users/annemarie/Documents/1_TreeMort/2_Analysis/3_analysis_demographic_model_intercomparison/Paper_1/Outputs/CABLE-POP/"
+file.dir.julesred <- "/Users/annemarie/Documents/1_TreeMort/2_Analysis/3_analysis_demographic_model_intercomparison/Paper_1/Outputs/JULES-RED/sites/"
+file.dir.biomeEP <- "/Users/annemarie/Documents/1_TreeMort/2_Analysis/3_analysis_demographic_model_intercomparison/Paper_1/Outputs/BiomeEP/"
+file.dir.biomeE_Standalone <- "/Users/annemarie/Documents/1_TreeMort/2_Analysis/3_analysis_demographic_model_intercomparison/Paper_1/Outputs/BiomeE-Standalone/810yrsRun/NetCDF/"
+
+#load observations
+obs.path <- "/Users/annemarie/Documents/1_TreeMort/2_Analysis/3_analysis_demographic_model_intercomparison/Paper_1/Observations/2_processed/"
+
+get_output_LPJGUESS <- function(site,run,var,file.dir,co2_levels = "PS_412ppm/"){
+  model_name = "LPJGUESS"
+  if(co2_levels == "PS_562ppm/"){
+    file.dir. = paste0(file.dir,"PS_562ppm/")
+  }else{
+    file.dir = paste0(file.dir,"PS_412ppm/")
+  }
+
+     # set metadata 
+      source.in <- defineSource(id = site,
+                           dir = file.dir ,
+                           format = DBEN,
+                           name = paste(model_name, site,'-', run),
+                           forcing.data = "cru_jra2.2")
+      
+      var.to.plot <- getField_DBEN(source.in, 
+                                quant = get_quantity(var),
+                                file.name = paste0(file.dir,
+                                model_name,"_",var,"_",run,"_",site,".nc"),
+                                   model_name = model_name)
+      
+      # change metadata
+      var.to.plot@first.year <- 1 # first year of simulation
+      var.to.plot@last.year  <- dim(var.to.plot@data)[1]
+       # change real data:
+      var.to.plot@data$Year  <- seq(1,dim(var.to.plot@data)[1])
+      
+            #[TODO] probably change unit later in actual model output and for dben standard..
+       if(var == "cmort" | var == "cmort_age" |
+           var == "cmort_other" | var == "cmort_greff" | var =="nbp") {
+         #convert to -yr:
+          end <- dim(var.to.plot@data)[2]
+          var.to.plot@data[,4:end] <- var.to.plot@data[,4:end] * 1/year_to_seconds
+          var.to.plot@quant@units <- "kgC m-2 yr-1"
+       }
+      
+     if(var =="gpp" ){
+        var.to.plot <- change_unit_stoy(var.to.plot)
+     }
+      
+      return(var.to.plot)
+}
+
+get_output_BiomeEP <- function(site,run,var,file.dir,co2_levels){
+  model_name = "BiomeEP"
+  #site = c("Fi1")
+  #run = c("p0")
+     # set metadata 
+      source.in <- defineSource(id = site,
+                           dir = file.dir ,
+                           format = DBEN,
+                           name = paste(model_name, site,'-', run),
+                           forcing.data = "cru_jra2.2")
+      
+      #adress the fact that for filename with var = "cmort_size", the variable name within = "cmort"
+      if(var== "cmort_size"){
+         var.to.plot <- getField_DBEN(source.in, 
+                                quant = get_quantity("cmort"),
+                                file.name = paste0(file.dir,co2_levels,"/",site,"/",
+                                model_name,"_",var,"_",run,"_",site,"_",co2_levels,".nc"),
+                                model_name = model_name)
+      }else if(var == "stemmort_size"){ # see above.
+        var.to.plot <- getField_DBEN(source.in, 
+                                quant = get_quantity("stemmort"),
+                                file.name = paste0(file.dir,co2_levels,"/",site,"/",
+                                model_name,"_",var,"_",run,"_",site,"_",co2_levels,".nc"),
+                                model_name = model_name)
+      }else{ # normal procedure:
+         var.to.plot <- getField_DBEN(source.in, 
+                                quant = get_quantity(var),
+                                file.name = paste0(file.dir,co2_levels,"/",site,"/",
+                                model_name,"_",var,"_",run,"_",site,"_",co2_levels,".nc"),
+                                model_name = model_name)
+      }
+     
+      
+            #[TODO] probably change unit later..
+       if(var == "cmort" | var == "cmort_age" |
+           var == "cmort_other" | var == "cmort_greff") {
+         #convert to -yr:
+          end <- dim(var.to.plot@data)[2]
+          var.to.plot@data[,4:end] <- var.to.plot@data[,4:end] * 1/year_to_seconds
+          var.to.plot@quant@units <- "kgC m-2 yr-1"
+       }
+     #  if(var =="npp"){
+      #  var.to.plot <- change_npp_unit(var.to.plot)
+      #}
+      return(var.to.plot)
+}
+get_output_BiomeE_standalone <- function(site,run,var,file.dir,co2_levels){
+  model_name = "BiomeE"
+  if(co2_levels=="562ppm"){
+    co2_levels ="eCO2"
+  }
+  if(co2_levels =="412ppm"){
+     co2_levels ="aCO2"
+  }
+  #run = c("p0")
+     # set metadata 
+      source.in <- defineSource(id = site,
+                           dir = file.dir.biomeE_Standalone ,
+                           format = DBEN,
+                           name = paste(model_name, site,'-', run),
+                           forcing.data = "cru_jra2.2")
+      
+      
+        var.to.plot <- getField_DBEN(source.in, 
+                                      quant = get_quantity(var),
+                                      file.name = paste0(file.dir,model_name,"_PS_",
+                                                         site,"_",co2_levels,
+                                                         "_",run,"_",var,".nc") ,
+                                      model_name = model_name)
+      
+                                      
+      
+      
+
+      #paste0(file.dir,model_name,"_",run,"_",site,"_",co2_levels,"_00_",var,".nc")
+   # /Users/annemarie/Documents/1_TreeMort/2_Analysis/3_analysis_demographic_model_intercomparison/Paper_1/Outputs/BiomeE-Standalone/810yrsRun/NetCDF/BiomeE_PS_FIN_aCO2_00_AGB.nc
+            #[TODO] probably change unit later..
+       if(var == "cmort" | var == "cmort_age" |
+           var == "cmort_other" | var == "cmort_greff") {
+         #convert to -yr:
+          end <- dim(var.to.plot@data)[2]
+          var.to.plot@data[,4:end] <- var.to.plot@data[,4:end] * 1/year_to_seconds
+          var.to.plot@quant@units <- "kgC m-2 yr-1"
+       }
+        
+        
+      return(var.to.plot)
+}
+get_output_CABLEPOP <- function(site,run,var,file.dir,co2_levels){
+  model_name="CABLE-POP"
+  # flexibly account for file naming:
+  if(run == "0"){
+    #benchmark run
+    file.name = paste0(file.dir,co2_levels,"/",model_name,"_",var,"_P0_",site,".nc")
+  }else{ # sensitivity runs:
+    file.name = paste0(file.dir,co2_levels,"/",model_name,"_",var,"_PS_",site,"_",run,".nc")
+  }
+     # set metadata 
+      source.in <- defineSource(id = site,
+                           dir = file.dir ,
+                           format = DBEN,
+                           name = paste(model_name, site,'-', run),
+                           forcing.data =  "cru_jra2.2")
+
+      var.to.plot <- getField_DBEN(source.in, 
+                                quant = get_quantity(var),
+                                file.name = file.name,
+                                model_name="CABLE-POP")
+      
+      # CABLE-POP_AGcwood_PS_BCI_1.nc
+      
+      # split up size classes graph to make more readable.
+      # create shared maximum y axis to make graphs more interpretable. maybe change back later  
+      ymax <- max(var.to.plot@data$Total)
+      
+     # print(plotTemporal(var.to.plot))#y.scale_log = TRUE))
+     # p <- plotTemporal(var.to.plot)
+      # [TODO] tidy..
+    c("cmort_crowd", "cmort_dist", "cmort_res")
+       #[TODO] probably change unit later..
+       if(var == "cmort"| var == "cmort_crowd"| var == "cmort_dist" | var == "cmort_res"){
+          var.to.plot <- change_unit_stoy(var.to.plot)
+       }
+      if(var =="npp"|var =="gpp" |var =="nbp"){
+        var.to.plot <- change_unit_stoy(var.to.plot)
+      }
+   
+ return(var.to.plot)
+
+}
+get_output_JULESRED <- function(site,run,var,file.dir,co2_levels){
+     model_name = "JULES-RED"
+     # set metadata 
+      source.in <- defineSource(id = site,
+                           dir = file.dir ,
+                           format = DBEN,
+                           name = paste(model_name, site,'-', run),
+                           forcing.data = "cru_jra2.2")
+
+      var.to.plot <- getField_DBEN(source.in, 
+                                quant = get_quantity(var),
+                                file.name = paste0(file.dir,
+                                model_name,"_",var,"_PS_",co2_levels,"_",site,"_",run,".nc"),
+                                model_name = model_name)
+      
+      # split up size classes graph to make more readable.
+      # create shared maximum y axis to make graphs more interpretable. maybe change back later  
+      ymax <- max(var.to.plot@data$Total)
+      
+      #print(plotTemporal(var.to.plot))#y.scale_log = TRUE))
+      p <- plotTemporal(var.to.plot)
+   
+            #[TODO] probably change unit later..
+       if(var == "cmort" | var == "cmort_age" |
+           var == "cmort_other" | var == "cmort_greff") {
+         #convert to -yr:
+          end <- dim(var.to.plot@data)[2]
+       #   var.to.plot@data[,4:end] <- var.to.plot@data[,4:end] * 1/year_to_seconds
+          var.to.plot@quant@units <- "kgC m-2 yr-1"
+       }
+      
+       if(var =="npp"|var =="gpp" |var =="nbp"){
+        var.to.plot <- change_unit_stoy(var.to.plot)
+       }
+      
+ return(var.to.plot)
+
+}
+get_output_FATES <- function(site,run,var,file.dir,model_name){
+model_name ="FATES"
+if(site == "FIN"){siteFates="fi"}
+if(site == "BIA"){siteFates ="bia"}
+if(site == "BCI"){siteFates ="bci"}
+if(run  == "P0"){runFates ="p0"}
+     # set metadata 
+      source.in <- defineSource(id = site,
+                           dir = file.dir ,
+                           format = DBEN,
+                           name = paste(model_name, site,'-', run),
+                           forcing.data = "cru_jra2.2")
+    
+# obtain total stemmort from under and overstory:
+        if(var == "stemmort"){ # 
+             var.to.plot_under <- getField_DBEN(source.in, 
+                                quant = get_quantity(var),
+                                 file.name = paste0(file.dir,site,"/",runFates,"/",
+                                                  model_name,"_",var,"_",
+                                                  runFates,"_",siteFates,"_understsory.nc"),
+                                model_name = model_name)
+             
+              var.to.plot_over <- getField_DBEN(source.in, 
+                                quant = get_quantity(var),
+                              file.name = paste0(file.dir,site,"/",runFates,"/",
+                                                 model_name,"_",var,"_",
+                                                 runFates,"_",siteFates,"_overstsory.nc"),
+                              model_name = model_name)
+             
+              var.to.plot  <- var.to.plot_under # "initalise" to keep metadata
+              var.to.plot@data[,4:20]  <- var.to.plot_under@data[,4:20] + var.to.plot_over@data[,4:20] #combine
+              
+              #print(plotTemporal(var.to.plot))
+                
+                if(create_figs == TRUE){
+                   jpeg(filename = paste0(Figs_dir,paste(var, run, site, model_name,sep="_"),".jpeg") )
+                   print(plotTemporal(var.to.plot))
+                   dev.off()
+                }
+         
+        }else{
+          var.to.plot <- getField_DBEN(source.in, 
+                                quant = get_quantity(var),
+                                file.name = paste0(file.dir,site,"/",runFates,"/",
+                                model_name,"_",var,"_",runFates,"_",siteFates,".nc"),
+                                model_name = model_name)
+          #[TODO] probably change unit later..
+      if(var =="npp"|var =="gpp"|var =="nbp"){
+        var.to.plot <- change_unit_stoy(var.to.plot)
+      }
+
+        } # done reading in variables
+        return(var.to.plot)
+}
+
+#temporary function,  to change units for some fluxes where needed
+change_unit_stoy <- function(var_to_plot){
+          year_to_seconds = 31536000
+          #convert to -yr:
+          end <- dim(var_to_plot@data)[2]
+          var_to_plot@data[,4:end] <- var_to_plot@data[,4:end] * year_to_seconds
+          var_to_plot@quant@units <- "kgC m-2 yr-1"
+          return(var_to_plot)
+         }
+
+
+#aesthetics for consistent plotting
+#x allowed to be biome name or site name, for more convenient use
+get_biome_colour <- function(x){
+  
+  
+  #preparation:
+  biomes  <- c("Boreal","Temperate","Tropics")
+  sites    <- c("FIN", "BIA" ,"BCI")
+  cols   <- c(1,1,1)#c("dark green","light green","brown")
+  
+  #automatic colour coding for biome based on site name:
+  if(x %in% sites){
+  #retrieval:
+  ret_col <- cols[sites==x]
+  }
+  
+  if(x %in% c("Boreal","Temperate","Tropics")){
+  #retrieval:
+  ret_col <- cols[biomes==x]
+  }
+
+  return(ret_col)
+  
+}
+
+
+#turn into object with function that returns colour when giving it model-name later..
+get_model_colour <- function(model){
+  # PREPARATION:
+  models <- c("FATES","JULES-RED","ORCHIDEE","LPJ-GUESS","CABLE-POP","BiomeEP","BiomeE-Standalone")
+  model_cols <- c("orange","red","blue","light blue","grey","purple","magenta")
+  plot_mod_cols <- data.frame(models,model_cols)
+ 
+  #RETRIEVAL:
+  ret_col <-   plot_mod_cols[which(plot_mod_cols$models == model), ]$model_cols
+  return(ret_col)
+  }
+
+
+#stand-structure related shared objects:
+sc <- c( "<1" ,   "<5" ,   "<10", "<15",  "<20" ,  "<30",   "<40"  , "<50" ,  "<60" ,  "<70" ,  "<80" ,  "<90" ,  "<100",  "<150" , "<200",  ">=200")
+
+
+#to deal with different file naming conventions:
+runs = c("P1","P2","P3","P4","P5","P6","P7")
+runs_biomeEP <- c("P0","PS1","PS2","PS3","PS4","PS5","PS6")
+
+#Disturbance: stand-replacing (resetting to initial conditions) and stochastic with mean frequency
+#of:0.01, 0.02, 0.04, 0.08, 0.20, 0.40 (corresponding to the file names: _01, _02, _04, _08, _20, _40)
+runs_biomeES <- c("00","01", "02", "04", "08", "20", "40")
+runs_julesred = c("1","2","3","4","5","6","7")
+runs_cablepop = c("1","2","3","4","5","6","7")
+#[TODO] re-naming of biomeEP scenarios once PS1 is run.
+
+#biome-specific points on graphs:
+Tropics_pch = 16
+Temperate_pch = 16
+Boreal_pch = 16
+
+
+
+# function to plot a model's  stand stucture output alongside observations.
+# nstem_size can be plotted on log yaxis (log = TRUE) or not
+# ylim_ext can override automatically generated ylim  values.
+# model name must match the model name used for get_model_colour
+# var the DBEN variable that should be plotted.
+stand_structure_benchmarks <- function(model_name = "LPJ-GUESS",site_in = site,log =TRUE, var_in = var, ylim_ext = NULL ){
+
+  if(model_name == "LPJ-GUESS"){
+    
+  }
+  if(model_name == "BiomeEP"){
+    model_out <- get_output_BiomeEP(site = site_in,run = "P0",var = var_in,file.dir = file.dir.biomeEP,co2_levels = "412ppm")
+  }
+  
+  
+  ############### ############### ############### ############### ############### ############### 
+  if(var_in =="nstem_size"){
+    ##plot models - nstem_size
+    dbh_classes_plot <- stand_structure_obs[which(stand_structure_obs$site == site),]$dbh_classes_num
+    #subset of dbh- classes for plotting, because in the observations there are no more than that.
+    #[TODO]would ideally subset with this vector of column names, but it somehow doesnt, work. doing this manually for now, but ther emust be a better solution..
+    dbh_classes_sel <-  c( "<1" ,   "<5" ,   "<10", "<15",  "<20" ,  "<30",   "<40"  , "<50" ,  "<60" ,  "<70" ,  "<80" ,  "<90", "<100", "<150", "<200", ">=200" )
+    
+    #make ylims flexible, or prescribe from external:
+    max_model_output <- max(model_out@data[,
+                                             c( "<1" ,   "<5" ,   "<10", "<15",  "<20" ,  "<30",   "<40"  , "<50" ,  "<60" ,  "<70" ,  "<80" , 
+                                                "<90" ,  "<100",  "<150" , "<200",  ">=200")])
+    min_model_output <-  max(model_out@data[,
+                                             c( "<1" ,   "<5" ,   "<10", "<15",  "<20" ,  "<30",   "<40"  , "<50" ,  "<60" ,  "<70" ,  "<80" , 
+                                                "<90" ,  "<100",  "<150" , "<200",  ">=200")])
+    max_obs <- max( na.omit(stand_structure_obs[,c("AGB_size_kgCm.2","AGB_size_upper_kgCm.2","AGB_size_lower_kgCm.2")]) )
+    min_obs <- min( na.omit(stand_structure_obs[,c("AGB_size_kgCm.2","AGB_size_upper_kgCm.2","AGB_size_lower_kgCm.2")]) )
+        
+       
+    #check if external ylims are present or not:
+    if(is.null(ylim_ext)){ # not present, obtain ylim_set from within
+     ylim_set = c(min(min_obs,min_model_output),max(max_obs,max_model_output))
+    }else{
+     ylim_set = ylim_ext # present. pass external ylims to ylim_set
+    }
+     
+      #if nstem should be logged:
+    if(log ==TRUE){
+      
+     if(is.null(ylim_ext)){ # not present, obtain ylim_set from within
+      ylim_set = log(ylim_set)
+      ylim_set[ylim_set ==-Inf] <- -2
+     }
+      
+    
+        
+      plot(stand_structure_obs[which(stand_structure_obs$site == site),]$dbh_classes_num,
+         log(model_out@data[model_out@data$Year == max(model_out@data$Year), 
+                            c( "<1" ,   "<5" ,   "<10", "<15",  "<20" ,  "<30",   "<40"  , "<50" ,  "<60" ,  "<70" ,  "<80" , 
+                                                "<90" ,  "<100",  "<150" , "<200",  ">=200")]), 
+      ylim = ylim_set ,col= get_model_colour(model_name),pch=16,cex=1.5,ylab="") 
+    
+      
+      points(stand_structure_obs[which(stand_structure_obs$site == site),]$dbh_classes_num, 
+           log(stand_structure_obs[which(stand_structure_obs$site == site),]$nstem_size_ha.1),  
+           col= get_biome_colour(site))
+      arrows(stand_structure_obs$dbh_classes_num,
+           log(stand_structure_obs[which(stand_structure_obs$site == site),]$nstem_size_lower_ha.1),
+           stand_structure_obs$dbh_classes_num,
+           log(stand_structure_obs[which(stand_structure_obs$site == site),]$nstem_size_upper_ha.1),
+            length = 0.00, angle = 90, code = 3,
+            col= get_biome_colour(site) )
+       mtext(site,adj=0.95,side=3,line=-1.3)
+       mtext(side=2,"log(nstem_size) (nstem)",line=2,outer=FALSE)
+       
+    }else {  # nstem not logged
+      
+       plot(stand_structure_obs[which(stand_structure_obs$site == site),]$dbh_classes_num,
+        model_out@data[model_out@data$Year == max(model_out@data$Year), c( "<1" ,   "<5" ,   "<10", "<15",  "<20" ,  "<30",   "<40"  , "<50" ,  "<60" ,  "<70" ,  "<80" , 
+                                                "<90" ,  "<100",  "<150" , "<200",  ">=200")], 
+         ylim = ylim_set ,col= get_model_colour(model_name),pch=16,cex=1.5)
+      
+      points(stand_structure_obs[which(stand_structure_obs$site == site),]$dbh_classes_num, 
+           stand_structure_obs[which(stand_structure_obs$site == site),]$nstem_size_ha.1,  
+           col= get_biome_colour(site))
+      arrows(stand_structure_obs$dbh_classes_num,
+           stand_structure_obs[which(stand_structure_obs$site == site),]$nstem_size_lower_ha.1,
+           stand_structure_obs$dbh_classes_num,
+           stand_structure_obs[which(stand_structure_obs$site == site),]$nstem_size_upper_ha.1,
+            length = 0.00, angle = 90, code = 3,
+            col= get_biome_colour(site) )
+       mtext(site,adj=0.95,side=3,line=-1.3)
+    mtext(side=2,"nstem_size (nstem)",line=2,outer=FALSE)
+    }
+    
+    
+  }
+ 
+    ############### ############### ############### ############### 
+    if(var_in =="cwood_size"){
+        # cwood plots
+       max_model_output <- max(model_out@data[,c( "<1" ,   "<5" ,   "<10", "<15",  "<20" ,  
+                                          "<30",   "<40"  , "<50" ,  "<60" ,  "<70" ,  "<80" ,  "<90" ,  "<100",  "<150" , "<200",  ">=200")])
+    max_obs <- max( na.omit(stand_structure_obs[,c("AGB_size_kgCm.2","AGB_size_upper_kgCm.2","AGB_size_lower_kgCm.2")]) )
+    
+   
+     #check if external ylims are present or not:
+    if(is.null(ylim_ext)){ # not present, obtain ylim_set from within
+      ylim_set = c(0,max(max_obs,max_model_output) + max(max_obs,max_model_output)*0.1) 
+    }else{
+      ylim_set = ylim_ext # present. pass external ylims to ylim_set
+    }
+    
+    plot(stand_structure_obs[which(stand_structure_obs$site == site),]$dbh_classes_num,
+         model_out@data[model_out@data$Year == max(model_out@data$Year), c( "<1" ,   "<5" , "<10", "<15",  "<20" , 
+                                                                            "<30",   "<40"  , "<50" ,  "<60" ,  "<70" ,  "<80" ,  "<90" ,  "<100",  "<150" , "<200",  ">=200")], 
+          ylim = ylim_set ,col= get_model_colour(model_name),pch=16,cex=1.5,ylab="") 
+    
+    points(stand_structure_obs[which(stand_structure_obs$site == site),]$dbh_classes_num, 
+           stand_structure_obs[which(stand_structure_obs$site == site),]$AGB_size_kgCm.2,  col= get_biome_colour(biome))
+    arrows(stand_structure_obs$dbh_classes_num,
+           stand_structure_obs[which(stand_structure_obs$site == site),]$AGB_size_lower_kgCm.2,
+           stand_structure_obs$dbh_classes_num,
+           stand_structure_obs[which(stand_structure_obs$site == site),]$AGB_size_upper_kgCm.2,
+            length = 0.00, angle = 90, code = 3,
+           col= get_biome_colour(site) )
+    mtext(site,adj=0.95,side=3,line=-1.3)
+    
+    mtext(side=2,"AGcwood (kgC m-2)",line=2,outer=FALSE)
+    }
+    
+}
+
+#convenience function for grid.arrange
+#passes back ggplot object for each model_output (input)
+create_gobj <-function(model_out, y.lim = NULL){
+  p_out <- plotTemporal(model_out, legend.position = "none", title = model_out@source@name, y.lim )
+  
+return(p_out)
+}
+
+```
+
+# Individual variables
+
+Plotted for all model variables, in order of occurrence in the protocol table.
+Sometimes I have questions to the model outputs. Please, everyone if you come across something fishy, point it out, and the people who know the models, please feel responsible in answering the questions.
+
+cwood_size and nstem_size are not plotted here.
+
+
+### cveg
+
+|Model |Comments|
+|-------|-------|
+|BiomeEP| |
+|LPJ-GUESS| |
+|FATES |AHES: Why is cveg not 0 at disturbance year?|
+|BiomeES|AHES: Why is cveg not 0 at disturbance year?AHES: -> Grasses ?|
+|JULES-RED|AHES: Why is cveg not 0 at disturbance year?|
+
+
+```{r testing_all_models_vars_cveg}
+
+var  = "cveg"
+site ="FIN"
+run ="P0"
+BiomeEP <- get_output_BiomeEP(site,run,var = var,file.dir = file.dir.biomeEP,co2_levels = "412ppm")
+pBiomeEP <- create_gobj(BiomeEP)
+
+LPJGUESS <- get_output_LPJGUESS(site,run,var,file.dir = file.dir.lpjguess,co2_levels = "PS_412ppm/")
+pLPJGUESS <- create_gobj(LPJGUESS)
+
+FATES <- get_output_FATES(site,run,var,file.dir=file.dir.fates,model_name ="FATES")
+pFATES <- create_gobj(FATES)
+
+BiomeES <- get_output_BiomeE_standalone(site,run = "00",var = var, file.dir.biomeE_Standalone,co2_levels = "412ppm")
+pBiomeES <- create_gobj(BiomeES)
+
+JULESRED <- get_output_JULESRED(site,run ="1",var = var,file.dir.julesred,co2_levels = "412ppm")
+pJULESRED <- create_gobj(JULESRED)
+
+CABLEPOP  <- get_output_CABLEPOP(site,run = "1",var = var,file.dir.cablepop,co2_levels = "PS_412ppm")
+pCABLEPOP <- create_gobj(CABLEPOP)
+
+
+grid.arrange(pBiomeEP,pJULESRED,pFATES,pBiomeES,pJULESRED,pCABLEPOP)
+
+```
+
+### AGcwood
+
+|Model |Comments|
+|-------|-------|
+|BiomeEP| |
+|LPJ-GUESS| |
+|FATES| |
+|BiomeES| AHES: no AGcwood variable. Right now we are not comparing like-for-like here. What do we do for the paper: argue with low leaf carbon content ("The biomass of leaves is low, 0.2~0.4 kg C m-2.") or remove leaf fraction?|
+|JULES-RED|AHES: Why does this not go to 0 at distyear?|
+
+```{r testing_all_models_vars_AGcwood}
+
+var  = "AGcwood"
+site ="FIN"
+run ="P0"
+BiomeEP <- get_output_BiomeEP(site,run,var = var,file.dir = file.dir.biomeEP,co2_levels = "412ppm")
+pBiomeEP <- create_gobj(BiomeEP)
+
+LPJGUESS <- get_output_LPJGUESS(site,run,var,file.dir = file.dir.lpjguess,co2_levels = "PS_412ppm/")
+pLPJGUESS <- create_gobj(LPJGUESS)
+
+FATES <- get_output_FATES(site,run,var,file.dir=file.dir.fates,model_name ="FATES")
+pFATES <- create_gobj(FATES)
+
+#AHES: AGB not AGcwood
+BiomeES <- get_output_BiomeE_standalone(site,run = "00",var = "AGB", file.dir.biomeE_Standalone,co2_levels = "412ppm")
+pBiomeES <- create_gobj(BiomeES)
+
+#AHES: AGB here AGcwood - note that the automated plotting will provide the wrong metadata for this plot. It is "Total Aboveground woody biomass"
+JULESRED  <- get_output_JULESRED(site,run ="1",var = "AGB",file.dir.julesred,co2_levels = "412ppm")
+pJULESRED <- create_gobj(JULESRED)
+
+CABLEPOP  <- get_output_CABLEPOP(site,run = "1",var = var,file.dir.cablepop,co2_levels = "PS_412ppm")
+pCABLEPOP <- create_gobj(CABLEPOP)
+
+
+grid.arrange(pBiomeEP,pLPJGUESS,pJULESRED,pFATES,pBiomeES,pCABLEPOP)
+
+```
+
+## cwood
+
+|Model |Comments|
+|-------|-------|
+|BiomeEP| |
+|LPJ-GUESS| |
+|FATES |AHES: Why does this not go to 0 at distyear?|
+|BiomeES|AHES: cwood goes to 0, so in other plots i.e. cveg the non-0 amount is indeed  cause by the grass fraction ( makes sense to me)|
+|JULES-RED|AHES: Why does this not go to 0 at distyear?|
+
+```{r testing_all_models_vars_cwood}
+
+var  = "cwood"
+site ="FIN"
+run ="P0"
+BiomeEP <- get_output_BiomeEP(site,run,var = var,file.dir = file.dir.biomeEP,co2_levels = "412ppm")
+pBiomeEP <- create_gobj(BiomeEP)
+
+LPJGUESS <- get_output_LPJGUESS(site,run,var,file.dir = file.dir.lpjguess,co2_levels = "PS_412ppm/")
+pLPJGUESS <- create_gobj(LPJGUESS)
+
+FATES <- get_output_FATES(site,run,var,file.dir=file.dir.fates,model_name ="FATES")
+pFATES <- create_gobj(FATES)
+
+BiomeES <- get_output_BiomeE_standalone(site,run = "00",var = var, file.dir.biomeE_Standalone,co2_levels = "412ppm")
+pBiomeES <- create_gobj(BiomeES)
+
+
+JULESRED <- get_output_JULESRED(site,run ="1",var = var,file.dir.julesred,co2_levels = "412ppm")
+pJULESRED <- create_gobj(JULESRED)
+
+CABLEPOP  <- get_output_CABLEPOP(site,run = "1",var = var,file.dir.cablepop,co2_levels = "PS_412ppm")
+pCABLEPOP <- create_gobj(CABLEPOP)
+
+
+grid.arrange(pBiomeEP,pLPJGUESS,pJULESRED,pFATES,pBiomeES,pCABLEPOP)
+```
+
+
+## lai 
+
+|Model |Comments|
+|-------|-------|
+|BiomeEP| |
+|LPJ-GUESS| |
+|FATES | Why is LAI never 0?|
+|BiomeES| Why is LAI never 0? -> Grass fraction?|
+|JULES-RED|Why is LAI never 0?|
+|CABLE-POP |Why is LAI never 0?|
+
+```{r testing_all_models_vars_lai}
+
+var  = "lai"
+site ="FIN"
+run ="P0"
+BiomeEP <- get_output_BiomeEP(site,run,var = var,file.dir = file.dir.biomeEP,co2_levels = "412ppm")
+pBiomeEP <- create_gobj(BiomeEP)
+
+LPJGUESS <- get_output_LPJGUESS(site,run,var,file.dir = file.dir.lpjguess,co2_levels = "PS_412ppm/")
+pLPJGUESS <- create_gobj(LPJGUESS)
+
+FATES <- get_output_FATES(site,run,var,file.dir=file.dir.fates,model_name ="FATES")
+pFATES <- create_gobj(FATES)
+
+BiomeES <- get_output_BiomeE_standalone(site,run = "00",var = var, file.dir.biomeE_Standalone,co2_levels = "412ppm")
+pBiomeES <- create_gobj(BiomeES)
+
+JULESRED <- get_output_JULESRED(site,run ="1",var = var,file.dir.julesred,co2_levels = "412ppm")
+pJULESRED <- create_gobj(JULESRED)
+
+CABLEPOP  <- get_output_CABLEPOP(site,run = "1",var = var,file.dir.cablepop,co2_levels = "PS_412ppm")
+pCABLEPOP <- create_gobj(CABLEPOP)
+
+
+grid.arrange(pBiomeEP,pLPJGUESS,pJULESRED,pFATES,pBiomeES,pCABLEPOP)
+```
+
+
+##Crown Area --- Projected crown area or PFT /multi canopy crown area ?
+
+*Issue with Crown area variable definition*
+
+How to standardise amongst models? 
+What do we want to compare against? 
+I would say satellite observations? Is Crownarea otherwise comparable against any other observations? Maybe some LIDAR observations?
+
+|Model |Comments|
+|-------|-------|
+|JULES-RED| projected crown area|
+|LPJ-GUESS| projected crown area|
+|BiomeEP| multi-canopy structure /multi LAI based?|
+|BiomeES| multi-canopy structure /multi LAI based?|
+|FATES| multi-canopy structure /multi LAI based?|
+|ORCHIDEE| multi-canopy structure /multi LAI based?|
+
+
+```{r testing_all_models_vars_CA}
+
+var  = "CA"
+site ="FIN"
+run ="P0"
+BiomeEP <- get_output_BiomeEP(site,run,var = var,file.dir = file.dir.biomeEP,co2_levels = "412ppm")
+pBiomeEP <- create_gobj(BiomeEP)
+
+LPJGUESS <- get_output_LPJGUESS(site,run,var,file.dir = file.dir.lpjguess,co2_levels = "PS_412ppm/")
+pLPJGUESS <- create_gobj(LPJGUESS)
+
+FATES <- get_output_FATES(site,run,var,file.dir=file.dir.fates,model_name ="FATES")
+pFATES <- create_gobj(FATES)
+
+BiomeES <- get_output_BiomeE_standalone(site,run = "00",var = var, file.dir.biomeE_Standalone,co2_levels = "412ppm")
+pBiomeES <- create_gobj(BiomeES)
+
+JULESRED <- get_output_JULESRED(site,run ="1",var = var,file.dir.julesred,co2_levels = "412ppm")
+pJULESRED <- create_gobj(JULESRED)
+
+CABLEPOP  <- get_output_CABLEPOP(site,run = "1",var = var,file.dir.cablepop,co2_levels = "PS_412ppm")
+pCABLEPOP <- create_gobj(CABLEPOP)
+
+
+grid.arrange(pBiomeEP,pLPJGUESS,pJULESRED,pFATES,pBiomeES,pCABLEPOP)
+```
+
+
+## BA
+
+|Model |Comments|
+|-------|-------|
+|BiomeEP|AHES: Grasses shouldn't have basal area output.|
+|LPJ-GUESS|     |
+|FATES |AHES: BA output missing|
+|BiomeES |      |
+|JULES-RED|     |
+|CABLE-POP|     |
+
+```{r testing_all_models_vars_BA}
+
+var  = "BA"
+site ="FIN"
+run ="P0"
+BiomeEP <- get_output_BiomeEP(site,run,var = var,file.dir = file.dir.biomeEP,co2_levels = "412ppm")
+pBiomeEP <- create_gobj(BiomeEP)
+
+LPJGUESS <- get_output_LPJGUESS(site,run,var,file.dir = file.dir.lpjguess,co2_levels = "PS_412ppm/")
+pLPJGUESS <- create_gobj(LPJGUESS)
+
+#FATES <- get_output_FATES(site,run,var,file.dir=file.dir.fates,model_name ="FATES")
+#plotTemporal(FATES)
+
+BiomeES <- get_output_BiomeE_standalone(site,run = "00",var = var, file.dir.biomeE_Standalone,co2_levels = "412ppm")
+pBiomeES <- create_gobj(BiomeES)
+
+JULESRED <- get_output_JULESRED(site,run ="1",var = var,file.dir.julesred,co2_levels = "412ppm")
+pJULESRED <- create_gobj(JULESRED)
+
+CABLEPOP  <- get_output_CABLEPOP(site,run = "1",var = var,file.dir.cablepop,co2_levels = "PS_412ppm")
+pCABLEPOP <- create_gobj(CABLEPOP)
+
+
+grid.arrange(pBiomeEP,pLPJGUESS,pJULESRED,pFATES,pBiomeES,pCABLEPOP)
+```
+
+
+## height
+[TODO] for height - remove "Total" column, instead plot max, but dotted
+Height output ambiguous between models. So the y-axis here is misleading and I cannot fully interpret it.
+Reported in Protocol: "95 th percentile of tree height"
+
+|Model |Comments|
+|-------|-------|
+|BiomeEP|AHES: height never goes to 0.|
+|LPJ-GUESS| |
+|FATES | AHES: no height output. Jessica "We don't have 95th percentile of height in FATES. I can do crown area weighted height if useful?"|
+|BiomeES|AHES: v. jittery. Why?AHES: height never goes to 0.|
+|JULES-RED|AHES: height never goes to 0.|
+|CABLE-POP|AHES: height never goes to 0.|
+
+```{r testing_all_models_vars_height}
+
+var  = "height"
+site = "FIN"
+run  = "P0"
+BiomeEP <- get_output_BiomeEP(site,run,var = var,file.dir = file.dir.biomeEP,co2_levels = "412ppm")
+pBiomeEP <- create_gobj(BiomeEP)
+min(BiomeEP@data$Total)
+
+LPJGUESS <- get_output_LPJGUESS(site,run,var,file.dir = file.dir.lpjguess,co2_levels = "PS_412ppm/")
+pLPJGUESS <- create_gobj(LPJGUESS)
+# height output confirmed: mean PFT height in 95th percentile.
+
+#FATES <- get_output_FATES(site,run,var,file.dir=file.dir.fates,model_name ="FATES")
+#plotTemporal(FATES)
+
+BiomeES <- get_output_BiomeE_standalone(site,run = "00",var = var, file.dir.biomeE_Standalone,co2_levels = "412ppm")
+pBiomeES <- create_gobj(BiomeES)
+min(BiomeES@data$Total)
+# height confirmed: "95 th percentile of tree height"
+
+JULESRED <- get_output_JULESRED(site,run ="1",var = var,file.dir.julesred,co2_levels = "412ppm")
+pCABLEPOP <- create_gobj(JULESRED)
+
+CABLEPOP <- get_output_CABLEPOP(site,run = "1",var = var,file.dir.cablepop,co2_levels = "PS_412ppm")
+pCABLEPOP <- create_gobj(CABLEPOP)
+
+
+grid.arrange(pBiomeEP,pLPJGUESS,pJULESRED,pBiomeES,pCABLEPOP)
+
+```
+
+## roughness - optional output
+The two models which provide this output currently have two orders of magnitude difference in their values.
+
+|Model |Comments|
+|-------|-------|
+|BiomeEP| NA|
+|LPJ-GUESS|NA|
+|FATES |AHES: Does show any dynamics in keeping with regrowth dynamics. why?|
+|BiomeES| NA|
+|JULES-RED| |
+|CABLE-POP| NA|
+
+
+```{r testing_all_models_vars_roughness}
+
+var  = "z0"
+site ="FIN"
+run ="P0"
+#BiomeEP <- get_output_BiomeEP(site,run,var = var,file.dir = file.dir.biomeEP,co2_levels = "412ppm")
+#plotTemporal(BiomeEP)
+
+#LPJGUESS <- get_output_LPJGUESS(site,run,var,file.dir = file.dir.lpjguess,co2_levels = "PS_412ppm/")
+#plotTemporal(LPJGUESS)
+
+FATES <- get_output_FATES(site,run,var,file.dir=file.dir.fates,model_name ="FATES")
+pFATES <- create_gobj(FATES)
+
+#BiomeES <- get_output_BiomeE_standalone(site,run = "00",var = var, file.dir.biomeE_Standalone,co2_levels = "412ppm")
+#plotTemporal(BiomeES)
+
+JULESRED <- get_output_JULESRED(site,run ="1",var = var,file.dir.julesred,co2_levels = "412ppm")
+pJULESRED <- create_gobj(JULESRED)
+
+#CABLEPOP <- get_output_CABLEPOP(site,run = "1",var = var,file.dir.cablepop,co2_levels = "PS_412ppm")
+#pCABLEPOP <- create_gobj(CABLEPOP)
+
+
+grid.arrange(pJULESRED,pFATES)
+```
+
+## albedo - optional output
+
+|Model |Comments|
+|-------|-------|
+|BiomeEP|NA     |
+|LPJ-GUESS|AHES: NA[TODO] get this from post processing still..|
+|FATES | AHES: Does show any dynamics in keeping with regrowth dynamics. why?|
+|BiomeES|NA|
+|JULES-RED| |
+|CABLE-POP| AHES: no trace of regrowth, but in the same bulpark as JULES-RED when in equilibrium. Juergen Knauer in email: drop this variable. AHES: but maybe easy to fix?|
+
+
+```{r testing_all_models_vars_albedo}
+
+var  = "albedo"
+site ="FIN"
+run ="P0"
+
+#BiomeEP <- get_output_BiomeEP(site,run,var = var,file.dir = file.dir.biomeEP,co2_levels = "412ppm")
+#plotTemporal(BiomeEP)
+
+#LPJGUESS <- get_output_LPJGUESS(site,run,var,file.dir = file.dir.lpjguess,co2_levels = "PS_412ppm/")
+#plotTemporal(LPJGUESS)
+
+#FATES <- get_output_FATES(site,run,var,file.dir=file.dir.fates,model_name ="FATES")
+#plotTemporal(FATES)
+
+#BiomeES <- get_output_BiomeE_standalone(site,run = "00",var = var, file.dir.biomeE_Standalone,co2_levels = "412ppm")
+#plotTemporal(BiomeES)
+
+JULESRED <- get_output_JULESRED(site,run ="1",var = var,file.dir.julesred,co2_levels = "412ppm")
+pJULESRED <- create_gobj(JULESRED)
+
+
+CABLEPOP <- get_output_CABLEPOP(site,run = "1",var = var,file.dir.cablepop,co2_levels = "PS_412ppm")
+pCABLEPOP <- create_gobj(CABLEPOP)
+
+
+grid.arrange(pJULESRED,pCABLEPOP)
+```
+
+
+## WBgrowth
+
+|Model |Comments|
+|-------|-------|
+|BiomeEP|AHES: remove grasses. double-check the output is indeed woody biomass only, not something like cveg or another carbon pool.|
+| LPJ-GUESS|AHES: not gross growth?!|
+|FATES |AHES: never goes to 0.|
+| BiomeES|AHES: remove grasses. double-check the output is indeed woody biomass only, not something like cveg or another carbon pool.|
+|JULES-RED|AHES: remove grasses. double-check the output is indeed woody biomass only, not something like cveg or another carbon pool.
+AHES: why no BINE PFT in FIN?|
+|CABLE-POP|AHES: WBgrowth rate not much influenced by regrowth-dynamics.AHES: add PFT dimension easily possible? (not to worry for this analysis?)|
+
+```{r testing_all_models_vars_WBgrowth}
+
+var  = "WBgrowth"
+site ="FIN"
+run ="P0"
+
+BiomeEP <- get_output_BiomeEP(site,run,var = var,file.dir = file.dir.biomeEP,co2_levels = "412ppm")
+pBiomeEP <- create_gobj(BiomeEP)
+
+LPJGUESS <- get_output_LPJGUESS(site,run,var,file.dir = file.dir.lpjguess,co2_levels = "PS_412ppm/")
+pLPJGUESS <- create_gobj(LPJGUESS)
+
+FATES <- get_output_FATES(site,run,var,file.dir=file.dir.fates,model_name = "FATES")
+pFATES <- create_gobj(FATES)
+
+BiomeES <- get_output_BiomeE_standalone(site,run = "00",var = var, file.dir.biomeE_Standalone,co2_levels = "412ppm")
+pBiomeES <- create_gobj(BiomeES)
+
+JULESRED <- get_output_JULESRED(site,run = "1",var = var,file.dir.julesred,co2_levels = "412ppm")
+pJULESRED <- create_gobj(JULESRED)
+
+CABLEPOP <- get_output_CABLEPOP(site,run = "1",var = var,file.dir.cablepop,co2_levels = "PS_412ppm")
+pCABLEPOP <- create_gobj(CABLEPOP)
+
+
+grid.arrange(pBiomeEP,pLPJGUESS,pJULESRED,pFATES,pBiomeES,pCABLEPOP)
+```
+
+## BAgrowth
+
+|Model |Comments|
+|-------|-------|
+|BiomeEP|AHES: remove grasses. double-check the output is BAgrowth, not something like cveg or another carbon pool. Units are also v.high.|
+|LPJ-GUESS|AHES: maybe not gross growth?|
+|FATES |NA|
+|BiomeES|AHES: remove grasses. double-check the output is indeed woody biomass only, not something like cveg or another carbon pool.|
+|JULES-RED|AHES: negative basal area growth.|
+|CABLE-POP|AHES: add PFT dimension easily possible? (not to worry for this analysis?)|
+
+
+```{r testing_all_models_vars_BAgrowth}
+
+var  = "BAgrowth"
+site ="FIN"
+run ="P0"
+
+BiomeEP <- get_output_BiomeEP(site,run,var = var,file.dir = file.dir.biomeEP,co2_levels = "412ppm")
+pBiomeEP <- create_gobj(BiomeEP)
+
+LPJGUESS <- get_output_LPJGUESS(site,run,var,file.dir = file.dir.lpjguess,co2_levels = "PS_412ppm/")
+pLPJGUESS <- create_gobj(LPJGUESS)
+
+#FATES <- get_output_FATES(site,run,var,file.dir=file.dir.fates,model_name = "FATES")
+#plotTemporal(FATES)
+
+BiomeES <- get_output_BiomeE_standalone(site,run = "00",var = var, file.dir.biomeE_Standalone,co2_levels = "412ppm")
+pBiomeES <- create_gobj(BiomeES)
+
+JULESRED <- get_output_JULESRED(site,run = "1",var = var,file.dir.julesred,co2_levels = "412ppm")
+pJULESRED <- create_gobj(JULESRED,y.lim = c(-6,2))
+
+CABLEPOP <- get_output_CABLEPOP(site,run = "1",var = var,file.dir.cablepop,co2_levels = "PS_412ppm")
+pCABLEPOP <- create_gobj(CABLEPOP)
+
+
+grid.arrange(pBiomeEP,pLPJGUESS,pJULESRED,pFATES,pBiomeES,pCABLEPOP)
+```
+
+
+## cmort
+BiomeEP, BiomeE and Jules-RED seem to reset to bare ground as a mechanism to introduce disturbance. The rest of the models kills all trees. That way, the mortality flux at the disturbance event is recorded in the output.
+
+|Model |Comments|
+|-------|-------|
+|BiomeEP| |
+|LPJ-GUESS| |
+|FATES | |
+|BiomeES| | EW in email: "By the way, the up and downs of the size class curve is due to wide bins for merging similar sized cohorts in the model, while the plotting bins are small. I halved the bin width in this model run. Small bins lead to more cohorts and thus slow down model run."|
+|JULES-RED| |
+|CABLE-POP|Added all mortalities together. accorting to JK, have to potentially remove cmort_res. This should be done once I have patch-scale data.|
+
+```{r testing_all_models_vars_cmort}
+
+var  = "cmort"
+site ="FIN"
+run ="P0"
+
+BiomeEP <- get_output_BiomeEP(site,run,var = "cmort_size",file.dir = file.dir.biomeEP,co2_levels = "412ppm")
+pBiomeEP <- create_gobj(BiomeEP)
+
+LPJGUESS <- get_output_LPJGUESS(site,run,var,file.dir = file.dir.lpjguess,co2_levels = "PS_412ppm/")
+pLPJGUESS <- create_gobj(LPJGUESS)
+
+FATES <- get_output_FATES(site,run,var,file.dir=file.dir.fates,model_name = "FATES")
+pFATES <- create_gobj(FATES)
+
+BiomeES <- get_output_BiomeE_standalone(site,run = "00",var = "cmort_size", file.dir.biomeE_Standalone,co2_levels = "412ppm")
+pBiomeES <- create_gobj(BiomeES)
+
+JULESRED <- get_output_JULESRED(site,run = "1",var = var,file.dir.julesred,co2_levels = "412ppm")
+pJULESRED <- create_gobj(JULESRED)
+
+
+#sum up all cmort mechanisms:
+CABLEPOP_ccrowd <- get_output_CABLEPOP(site,run = "0",var = "cmort_crowd",file.dir.cablepop,co2_levels = "PS_412ppm")
+CABLEPOP_cdist <- get_output_CABLEPOP(site,run = "0",var = "cmort_dist",file.dir.cablepop,co2_levels = "PS_412ppm")
+CABLEPOP_cres <- get_output_CABLEPOP(site,run = "0",var = "cmort_res",file.dir.cablepop,co2_levels = "PS_412ppm")
+
+CABLEPOP <-CABLEPOP_ccrowd@data$Total +CABLEPOP_cdist@data$Total +CABLEPOP_cres@data$Total
+
+grid.arrange(pBiomeEP,pLPJGUESS,pJULESRED,pFATES,pBiomeES)
+
+plot(CABLEPOP,type="l",ylim=c(0,0.7))
+
+plotTemporal(FATES,y.lim=c(0,0.7))
+plotTemporal(LPJGUESS,y.lim=c(0,0.7))
+```
+
+
+
+## is the budget closed? 
+
+woody growth_rate - mort_rate = 0 ( in equilibrium)
+
+|Model |Comments|
+|-------|-------|
+|BiomeEP|AHES: too low. One possibility - are the grasses included in the cmort output ?|
+|LPJ-GUESS|AHES: show age mortality (=decline to negative),"Equilibrium" probably maybe more dynamic than other models. OK confirmed with TOM . |
+|FATES |AHES: too high|
+|BiomeES| |
+|JULES-RED| TOO high in equilibrium|
+|CABLE-POP|AHES: With cmort_res included, too low, when cmort_res excluded too high. 
+Or is this "OK " for CABLE-POP? To me there seems to be a bias, that needs to be adressed.|
+
+```{r testing_all_models_vars_testing_budget}
+par(mfrow =c(2,3),oma=c(1,2,1,1),mar=c(1,1,1,1))
+
+var  = "cmort"
+site ="BCI"
+run ="P0"
+
+BiomeEP_cmort <- get_output_BiomeEP(site,run,var = "cmort_size",file.dir = file.dir.biomeEP,co2_levels = "412ppm")
+
+LPJGUESS_cmort <- get_output_LPJGUESS(site,run,var,file.dir = file.dir.lpjguess,co2_levels = "PS_412ppm/")
+
+FATES_cmort <- get_output_FATES(site,run,var,file.dir=file.dir.fates,model_name = "FATES")
+
+BiomeES_cmort <- get_output_BiomeE_standalone(site,run = "00",var = "cmort_size", file.dir.biomeE_Standalone,co2_levels = "412ppm")
+
+JULESRED_cmort <- get_output_JULESRED(site,run = "1",var = var,file.dir.julesred,co2_levels = "412ppm")
+
+
+#sum up all cmort mechanisms:
+c("cmort_crowd", "cmort_dist", "cmort_res")
+CABLEPOP_ccrowd <- get_output_CABLEPOP(site,run = "0",var = "cmort_crowd",file.dir.cablepop,co2_levels = "PS_412ppm")
+CABLEPOP_cdist <- get_output_CABLEPOP(site,run = "0",var = "cmort_dist",file.dir.cablepop,co2_levels = "PS_412ppm")
+CABLEPOP_cres <- get_output_CABLEPOP(site,run = "0",var = "cmort_res",file.dir.cablepop,co2_levels = "PS_412ppm")
+
+CABLEPOP <-CABLEPOP_ccrowd@data$Total +CABLEPOP_cdist@data$Total +CABLEPOP_cres@data$Total
+CABLEPOP <-CABLEPOP_ccrowd@data$Total +CABLEPOP_cdist@data$Total 
+
+#######################
+##wbgrowth
+var  = "WBgrowth"
+BiomeEP_WBgrowth <- get_output_BiomeEP(site,run,var = var,file.dir = file.dir.biomeEP,co2_levels = "412ppm")
+#plotTemporal(BiomeEP_WBgrowth)
+
+LPJGUESS_WBgrowth <- get_output_LPJGUESS(site,run,var,file.dir = file.dir.lpjguess,co2_levels = "PS_412ppm/")
+
+FATES_WBgrowth <- get_output_FATES(site,run,var,file.dir=file.dir.fates,model_name = "FATES")
+
+BiomeES_WBgrowth <- get_output_BiomeE_standalone(site,run = "00",var = var, file.dir.biomeE_Standalone,co2_levels = "412ppm")
+
+JULESRED_WBgrowth <- get_output_JULESRED(site,run = "1",var = var,file.dir.julesred,co2_levels = "412ppm")
+
+CABLEPOP_WBgrowth <- get_output_CABLEPOP(site,run = "0",var = var,file.dir.cablepop,co2_levels = "PS_412ppm")
+
+#################################
+##AGcwood
+var ="AGcwood"
+BiomeEP_AGcwood <- get_output_BiomeEP(site,run,var = var,file.dir = file.dir.biomeEP,co2_levels = "412ppm")
+
+LPJGUESS_AGcwood <- get_output_LPJGUESS(site,run,var,file.dir = file.dir.lpjguess,co2_levels = "PS_412ppm/")
+#plotTemporal(LPJGUESS_AGcwood)
+
+FATES_AGcwood <- get_output_FATES(site,run,var,file.dir=file.dir.fates,model_name = "FATES")
+
+BiomeES_AGcwood <- get_output_BiomeE_standalone(site,run = "00",var = "AGB", file.dir.biomeE_Standalone,co2_levels = "412ppm")
+
+
+JULESRED_AGcwood <- get_output_JULESRED(site,run = "1",var = "AGB",file.dir.julesred,co2_levels = "412ppm")
+
+CABLEPOP_AGcwood <- get_output_CABLEPOP(site,run = "0",var = var,file.dir.cablepop,co2_levels = "PS_412ppm")
+
+##########################################################################
+
+plot(LPJGUESS_WBgrowth@data$Total -  LPJGUESS_cmort@data$Total, type="l",main = "LPJGUESS",ylim=c(-2,1))
+#woody growth - woody biomass*mort_rate = 0
+
+
+
+plot(JULESRED_WBgrowth@data$Total - JULESRED_cmort@data$Total, type="l",main ="JULESRED")
+#solved
+
+plot(FATES_WBgrowth@data$Total -  FATES_cmort@data$Total, type="l",ylim= c(-1,2),main ="FATES")
+
+plot(BiomeES_WBgrowth@data$Total -  BiomeES_cmort@data$Total, type="l",ylim= c(-5,0.5),main ="BiomeES")
+
+plot(BiomeEP_WBgrowth@data$Total - BiomeEP_cmort@data$Total, type="l",ylim= c(-5,0.5),main = "BiomeEP")
+#Grasses?
+
+plot(CABLEPOP_WBgrowth@data$Total - CABLEPOP, type="l",ylim= c(-5,0.5),main = "CABLEPOP")
+mtext(outer=TRUE ,"KgC /yr",side =2,line = 0.8)
+# nb:grasses included for BiomeES and BiomeEP in some outputs.
+```
+
+
+## stemmort
+
+|Model |Comments|
+|-------|-------|
+|BiomeEP|AHES: Unit low: should be numer of stems /year. *nstems[y-1] ?|
+|LPJ-GUESS| |
+|BiomeES|AHES: Unit low: should be numer of stems /year. *nstems[y-1] ?Why so jittery? Biology model structure or post-processing?|
+|JULES-RED|AHES: what causes the small oscillations on top of the general number flux dynamics?|
+|CABLE-POP| NA|
+
+FATES-  AHES: output year 1: stem number flux almost 0 AHES: strange oscillations in _overstory.nc, due to PFT2 (e.g. simyear 32)
+
+|  Year|  Lat  | Lon  | <1    |  <5       |  <10      |    <15    |     <20|
+|-----|--------|------|-------|-----------|-----------|-----------|-----------| 
+|  32 | 62.25 | 23.25 | 0  |1678.8756  | 572.7487876 |164.84464856 |88.34444358|
+ 
+these numbers are also present in the .netcdf file, so not a read-in error.
+or is this just a quick transition of trees from under- to over-story after the disturbance?
+But I what is this oscillation exactly?   
+
+```{r testing_all_models_vars_stemmort}
+
+var  = "stemmort"
+site ="FIN"
+run ="P0"
+
+BiomeEP <- get_output_BiomeEP(site,run,var = "stemmort_size",file.dir = file.dir.biomeEP,co2_levels = "412ppm")
+pBiomeEP <- create_gobj(BiomeEP)
+
+LPJGUESS <- get_output_LPJGUESS(site,run,var,file.dir = file.dir.lpjguess,co2_levels = "PS_412ppm/")
+pLPJGUESS <- create_gobj(LPJGUESS)
+
+FATES <- get_output_FATES(site,run,var,file.dir=file.dir.fates,model_name = "FATES")
+pFATES <- create_gobj(FATES)
+
+BiomeES <- get_output_BiomeE_standalone(site,run = "00",var = "stemmort_size", file.dir.biomeE_Standalone,co2_levels = "412ppm")
+pBiomeES <- create_gobj(BiomeES)
+
+JULESRED <- get_output_JULESRED(site,run = "1",var = var,file.dir.julesred,co2_levels = "412ppm")
+pJULESRED <- create_gobj(JULESRED)
+
+#CABLEPOP <- get_output_CABLEPOP(site,run = "1",var = var,file.dir.cablepop,co2_levels = "PS_412ppm")
+#plotTemporal(CABLEPOP)
+
+grid.arrange(pBiomeEP,pLPJGUESS,pJULESRED,pFATES,pBiomeES,pCABLEPOP)
+
+```
+
+## gpp
+
+|Model |Comments|
+|-------|-------|
+|BiomeEP|AHES: netcdf only 0 values for gpp for BCI -double check output|
+|LPJ-GUESS| |
+|FATES |    |
+|BiomeES|   |
+|JULES-RED| AHES:FIN:  only PFT2 really active. PFT1 never present?|
+|CABLE-POP|  |
+
+```{r gpp}
+var  = "gpp"
+site ="FIN"
+run ="P0"
+
+BiomeEP <- get_output_BiomeEP(site,run,var = var,file.dir = file.dir.biomeEP,co2_levels = "412ppm")
+pBiomeEP <- create_gobj(BiomeEP)
+
+LPJGUESS <- get_output_LPJGUESS(site,run,var,file.dir = file.dir.lpjguess,co2_levels = "PS_412ppm/")
+pLPJGUESS <- create_gobj(LPJGUESS)
+
+FATES <- get_output_FATES(site,run,var,file.dir=file.dir.fates,model_name = "FATES")
+pFATES <- create_gobj(FATES)
+
+BiomeES <- get_output_BiomeE_standalone(site,run = "00",var = var, file.dir.biomeE_Standalone,co2_levels = "412ppm")
+pBiomeES <- create_gobj(BiomeES)
+
+JULESRED <- get_output_JULESRED(site,run = "1",var = var,file.dir.julesred,co2_levels = "412ppm")
+pJULESRED <- create_gobj(JULESRED)
+
+CABLEPOP <- get_output_CABLEPOP(site,run = "1",var = var,file.dir.cablepop,co2_levels = "PS_412ppm")
+pCABLEPOP <- create_gobj(CABLEPOP)
+
+
+grid.arrange(pBiomeEP,pLPJGUESS,pJULESRED,pFATES,pBiomeES,pCABLEPOP)
+```
+
+## npp
+
+|Model |Comments|
+|-------|-------|
+|BiomeEP|     |
+|LPJ-GUESS|     |
+|FATES |AHES: simulation output year 1 negative|
+|BiomeES|    |
+|JULES-RED|AHES:FIN:  only PFT2 really active. PFT1 never present?|
+
+### CABLE-POP
+
+```{r npp}
+var  = "npp"
+site ="FIN"
+run ="P0"
+
+BiomeEP <- get_output_BiomeEP(site,run,var = var,file.dir = file.dir.biomeEP,co2_levels = "412ppm")
+pBiomeEP <- create_gobj(BiomeEP)
+
+LPJGUESS <- get_output_LPJGUESS(site,run,var,file.dir = file.dir.lpjguess,co2_levels = "PS_412ppm/")
+pLPJGUESS <- create_gobj(LPJGUESS)
+
+FATES <- get_output_FATES(site,run,var,file.dir=file.dir.fates,model_name = "FATES")
+pFATES <- create_gobj(FATES)
+
+BiomeES <- get_output_BiomeE_standalone(site,run = "00",var = var, file.dir.biomeE_Standalone,co2_levels = "412ppm")
+pBiomeES <- create_gobj(BiomeES)
+
+JULESRED <- get_output_JULESRED(site,run = "1",var = var,file.dir.julesred,co2_levels = "412ppm")
+pJULESRED <- create_gobj(JULESRED)
+
+CABLEPOP <- get_output_CABLEPOP(site,run = "1",var = var,file.dir.cablepop,co2_levels = "PS_412ppm")
+pCABLEPOP <- create_gobj(CABLEPOP)
+
+
+grid.arrange(pBiomeEP,pLPJGUESS,pJULESRED,pFATES,pBiomeES,pCABLEPOP)
+```
+
+## nbp
+From the protocol: "Positive flux is into the land."
+
+post-disturbance, there is a less positive flux into the land for FATES
+
+
+|Model |Comments|
+|-------|-------|
+|BiomeEP||
+|LPJ-GUESS|AHES: dynamics post disturbance look a bit odd.. double-check output; does soil C increase?|
+|FATES |AHES: Seems to me in terms of NBP, FATES is not yet(?) in equilibrium. Seems to always take up more than it releases. different to other models or overaccounting of output? First output value needs double-checking.|
+|BiomeES| |
+|JULES-RED|NA|
+|CABLE-POP| |
+
+```{r nbp}
+var  = "nbp"
+site ="FIN"
+run ="P0"
+
+BiomeEP <- get_output_BiomeEP(site,run,var = var,file.dir = file.dir.biomeEP,co2_levels = "412ppm")
+pBiomeEP <- create_gobj(BiomeEP)
+
+LPJGUESS <- get_output_LPJGUESS(site,run,var,file.dir = file.dir.lpjguess,co2_levels = "PS_412ppm/")
+pLPJGUESS <- create_gobj(LPJGUESS)
+
+FATES <- get_output_FATES(site,run,var,file.dir=file.dir.fates,model_name = "FATES")
+pFATES <- create_gobj(FATES)
+
+BiomeES <- get_output_BiomeE_standalone(site,run = "00",var = var, file.dir.biomeE_Standalone,co2_levels = "412ppm")
+pBiomeES <- create_gobj(BiomeES)
+
+#JULESRED <- get_output_JULESRED(site,run = "1",var = var,file.dir.julesred,co2_levels = "412ppm")
+#plotTemporal(JULESRED)
+
+CABLEPOP <- get_output_CABLEPOP(site,run = "1",var = var,file.dir.cablepop,co2_levels = "PS_412ppm")
+pCABLEPOP <- create_gobj(CABLEPOP)
+
+
+grid.arrange(pBiomeEP,pLPJGUESS,pJULESRED,pFATES,pBiomeES,pCABLEPOP)
+```
+
