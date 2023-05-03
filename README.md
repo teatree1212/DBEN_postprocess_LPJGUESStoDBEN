@@ -1,2 +1,2 @@
 # DBEN
-temporarily priveate repo for DBEN output double-checking with everyont
+temporarily private repo for DBEN output double-checking with everyone
