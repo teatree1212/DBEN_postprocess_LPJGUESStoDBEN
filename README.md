@@ -1,2 +1,2 @@
 # DBEN
-LPJ-GUESS post-processing scripts
+LPJ-GUESS post-processing scripts for the demographic benchmarking initiative.
