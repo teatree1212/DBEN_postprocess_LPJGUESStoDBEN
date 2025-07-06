@@ -17,7 +17,7 @@ This script reads raw LPJ-GUESS output files (e.g. veg_structure_<>.out,cmass_<>
 ├── 2_processed/
 │   └── PS_412ppm/
 │       └── (output files written here)
-├── convert_to_ncdf.R
+├── create_netcdfs_clean.R
 ```
 
 
