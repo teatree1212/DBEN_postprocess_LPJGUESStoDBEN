@@ -1,15 +1,30 @@
 # DBEN
 LPJ-GUESS post-processing scripts for the demographic benchmarking initiative.
 
-This script reads raw LPJ-GUESS output files (e.g. veg_structure_*.out,cmass_*.out) for different simulations and sites, processes them (e.g., patch averaging, unit conversion), and prepares NetCDF-compatible summaries.
+This script reads raw LPJ-GUESS output files (e.g. veg_structure_<>.out,cmass_<>.out) for different simulations and sites, processes them (e.g., patch averaging, unit conversion), and prepares NetCDF-compatible summaries.
 
 
+```
+<base.path>/
 ├── 1_raw/
-│   └── <CO2LEVEL>/
-│       └── <LOCATION>/
-│           └── veg_structure_<SIM>.out
+│   └── PS_412ppm/
+│       ├── FIN1/
+│       │   └── *.out
+│       ├── BIA/
+│       │   └── *.out
+│       └── BCI/
+│           └── *.out
 ├── 2_processed/
-│   └── <CO2LEVEL>/
-├── create_netcdfs_clean.R
+│   └── PS_412ppm/
+│       └── (output files written here)
+├── convert_to_ncdf.R
+```
 
-where SIM is P0, and LOCATION is FI, BIA; BCI. CO2LEVEL in this publications are PS_412ppm
+
+## Run instructions:
+from terminal:
+navigate to the necessary location, then run:
+
+```
+Rscript create_netcdfs_clean.R
+```
