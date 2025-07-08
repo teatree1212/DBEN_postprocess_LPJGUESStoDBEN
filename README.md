@@ -18,13 +18,22 @@ This script reads raw LPJ-GUESS output files (e.g. veg_structure_<>.out,cmass_<>
 │   └── PS_412ppm/
 │       └── (output files written here)
 ├── create_netcdfs_clean.R
+├── check_demographic_carbon_budget.R
 ```
 
 
 ## Run instructions:
-from terminal:
-navigate to the necessary location, then run:
+
+1) from terminal:
+navigate to the relevant folder, then run:
 
 ```
-Rscript create_netcdfs_clean.R
+# convert LPJ-GUESS ouput to "DBEN"-output:
+Rscript create_netcdfs_clean.R 1_raw/ a
+
+# check the demographic carbon budget is adhered to:
+Rscript check_demographic_carbon_budget.R 2_processed/
+
 ```
+
+
