@@ -5,8 +5,10 @@
 # requires the D-BEN format file
 # requires output created from create_netcdfs_clean.R, which converts LPJ-GUESS to standard "DBEN" format.
 
+
 library(DGVMTools)
-file.dir.lpjguess = "/Users/annemarie/Documents/1_TreeMort/2_Analysis/3_analysis_demographic_model_intercomparison/D-BEN-site-sims_local/Paper_1/tmp/Outputs/LPJGUESS/1_raw/publication/"
+
+file.dir.lpjguess =  args[1]
 
 par(mfrow=c(3,1))
 
